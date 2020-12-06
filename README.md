@@ -2,6 +2,8 @@
 
 An Ansible role to create a Vault on 1Password, store a secure note there and share it with another user in the account.
 
+You'll need an account with 1password at https://1password.com/
+
 To configure the playbook:
 
 * clone the repository locally
