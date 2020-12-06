@@ -1,0 +1,21 @@
+---
+- name: Save a secure note in to a Vault for a user
+
+  gather_facts: false
+
+  vars:
+    vault_name: "sample-vault-via-ansible"
+    signin_address: "yourdomain.1password.eu"
+    admin_email_address: "admin@yourdomain.com"
+    master_password: "xxxxxxx"
+    secret_key: "xxxxx-xxxxx-xxxxx-xxxxx"
+    secure_note_title: "My Secure Note"
+
+  hosts: localhost
+
+  tasks:
+    - name: Loop over role
+      include_role:
+        name: op
+      with_items:
+        - { email: user@yourdomain.com, secure_content: 'some new content' }

@@ -1,0 +1,88 @@
+- name: Sign in to 1Password to get a token
+  shell: echo '{{ master_password }}' | op signin {{ signin_address}} {{ admin_email_address }} {{ secret_key }} --raw
+  register: token
+
+# Find or create the Vault
+
+- name: Look for our specific Vault for this user
+  shell: op list vaults --user "{{ item.email }}" | op get vault - | grep '{{ vault_name }}'
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  ignore_errors: yes
+  register: existing_vault_response
+
+- name: Create a Vault if there is no existing Vault found
+  shell: op create vault "{{ vault_name }}" --description "Created by Ansible"
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  register: vault_response
+  when: "existing_vault_response.rc == 1"
+
+# Add the user to the Vault
+
+- name: Add the Admin user if we are working with an existing Vault to allow edits
+  shell: op add user "{{ admin_email_address }}" "{{ (existing_vault_response.stdout|from_json).uuid }}"
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  when: "existing_vault_response.rc != 1"
+  ignore_errors: yes
+
+- name: Add the user if we are working with a new Vault
+  shell: op add user "{{ item.email }}" "{{ (vault_response.stdout|from_json).uuid }}"
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  register: add_user_response
+  when: "existing_vault_response.rc == 1"
+
+- name: Add the user to the existing Vault just to be sure, ignore error if user already there
+  shell: op add user "{{ item.email }}" "{{ (existing_vault_response.stdout|from_json).uuid }}"
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  register: add_user_response
+  when: "existing_vault_response.rc != 1"
+  ignore_errors: yes
+
+# Create or edit a secure note
+
+- name: Encode a secure note in the required format
+  shell: echo '{"notesPlain":"{{ item.secure_content }}","sections":[]}' | op encode
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  register: encode_response
+
+- name: Look for an existing secure note in the existing Vault
+  shell: op list items --vault "{{ (existing_vault_response.stdout|from_json).uuid }}" | op get item - | grep '{{ secure_note_title }}'
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  ignore_errors: yes
+  register: existing_secure_note_response
+
+- name: Create a new secure note in the new Vault
+  shell: op create item 'Secure Note' "{{ encode_response.stdout }}" --title='{{ secure_note_title }}' --vault "{{ (vault_response.stdout|from_json).uuid }}"
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  register: secure_note_response
+  when: "existing_vault_response.rc == 1"
+
+- name: Edit the existing secure note if needed
+  shell: op edit item '{{ secure_note_title }}' notesPlain='{{ item.secure_content }}' --vault "{{ (existing_vault_response.stdout|from_json).uuid }}"
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  register: secure_note_response
+  when: "existing_vault_response.rc != 1"
+
+# Clean up
+
+- name: Take the Admin user out of the new Vault
+  shell: op remove user "{{ admin_email_address }}" "{{ (vault_response.stdout|from_json).uuid }}"
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  when: "existing_vault_response.rc == 1"
+  ignore_errors: yes
+
+- name: Take the Admin user out of the existing Vault if its still there
+  shell: op remove user  "{{ admin_email_address }}" "{{ (existing_vault_response.stdout|from_json).uuid }}"
+  environment:
+    OP_SESSION_yourdomain: "{{ token.stdout }}"
+  when: "existing_vault_response.rc != 1"
+  ignore_errors: yes
